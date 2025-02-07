@@ -146,7 +146,7 @@ def main():
             top_n = st.slider("🎯 Selecciona Top N", 1, len(df), 10)
             df_top = df_ranked.head(top_n)
 
-            with st.expander("📋 Ver tabla de ranking"):
+            with st.expander("📋 Ver tabla de ranking", expanded=True):
                 st.dataframe(df_top)
             
             
