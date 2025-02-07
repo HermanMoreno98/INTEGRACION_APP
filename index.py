@@ -154,7 +154,7 @@ def main():
             st.write(df_top[["p016_nombredelprestador", "Ranking"]])
 
         with col2:
-            st.subheader("🗺️ Mapa de Ubicaciones")
+            st.subheader("🗺️ Mapa")
             map_center = [df_top["LATITUD"].mean(), df_top["LONGITUD"].mean()]
             m = folium.Map(location=map_center, zoom_start=10)
 
@@ -259,7 +259,7 @@ def main():
 
 
             # 🔹 Agregando el gráfico de radar debajo del mapa
-            st.subheader("📊 Comparación de Prestadores (Radar)")
+            st.subheader("📊 Comparación entre Prestadores")
             radar_fig = generate_radar_chart(df_top, sections)  # Función que genera el gráfico
             st.plotly_chart(radar_fig, use_container_width=True)
 
