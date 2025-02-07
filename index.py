@@ -8,23 +8,23 @@ from streamlit_folium import folium_static
 
 # Diccionario de pesos predeterminado
 default_weights = {
-    'Índice de servicios brindados': 3,
-    'Conexiones totales de agua': 3,
-    'Conexiones totales de alcantarillado': 3,
-    'Población': 3,
+    'Índice de servicios brindados': 4,
+    'Conexiones totales de agua': 2,
+    'Conexiones totales de alcantarillado': 2,
+    'Población': 2,
     '¿La OC cuenta con reconocimiento de la muni?': 1,
     '¿Recibió asistencia técnica en los últimos 3 años?': 1,
     'Ind cuota': 4,
     '¿Cobra cuota?': 1,
-    'Porcentaje de usuarios no morosos': 2,
-    '¿La cuota cubre costos de O&M?': 1,
+    'Porcentaje de usuarios no morosos': 1,
+    '¿La cuota cubre costos de O&M?': 2,
     'Índice continuidad horas semana': 1,
     '¿Realiza cloración?': 1,
     '¿El sistema cuenta con equipo clorador?': 1,
     'Estado operativo del reservorio': 1,
     'Antigüedad promedio del sistema': 1,
     'Antigüedad máxima del sistema': 1,
-    'Distancia a la EP': 3
+    'Distancia a la EP': 4
 }
 
 sections = {
@@ -239,7 +239,7 @@ def main():
 
             # Puntos
             for _, row in df_top.iterrows():
-                color = "red" if row["Ranking"] > 0.6 else "green"
+                color = "red" if row["Ranking"] >= 0.5855408551300644 else "green"
                 
                 folium.CircleMarker(
                     location=[row["LATITUD"], row["LONGITUD"]],
