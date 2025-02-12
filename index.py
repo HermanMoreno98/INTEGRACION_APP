@@ -44,7 +44,7 @@ sections = {
 def load_data(file):
     df = pd.read_excel(file)
     ranking_cols = df.loc[:, 'Índice de servicios brindados':'Distancia a la EP'].columns
-    df = df[['p016_nombredelprestador', 'LONGITUD', 'LATITUD'] + list(ranking_cols)]
+    df = df[['Prestador', 'LONGITUD', 'LATITUD','EPS'] + list(ranking_cols)]
     return df, ranking_cols
 
 # def calculate_ranking(df, ranking_cols, weights):
@@ -66,14 +66,14 @@ def calculate_sectional_ranking(df, ranking_cols, weights, sections):
 
 def generate_radar_chart(df_top, sections):
     # Seleccionar solo columnas de interés
-    radar_data = df_top.melt(id_vars=["p016_nombredelprestador"], 
+    radar_data = df_top.melt(id_vars=["Prestador"], 
                               value_vars=list(sections.keys()), 
                               var_name="Categoría", 
                               value_name="Valor")
     
     fig = px.line_polar(radar_data, r="Valor", theta="Categoría", 
                          line_close=True, 
-                         color="p016_nombredelprestador",
+                         color="Prestador",
                          template="plotly_white")
     fig.update_traces(fill='toself')
     return fig
@@ -115,159 +115,159 @@ def generate_formula(weights):
 
 
 def main():
+    
+    # Configuración inicial de session_state
+    if "geojson_data" not in st.session_state:
+        st.session_state["geojson_data"] = {}
+
+    # Función para cargar GeoJSON si no está en session_state
+    def cargar_geojson(url, nombre):
+        if nombre not in st.session_state["geojson_data"]:
+            try:
+                response = requests.get(url)
+                if response.status_code == 200:
+                    geojson_data = response.json()
+                    st.session_state["geojson_data"][nombre] = geojson_data
+                else:
+                    st.error(f"⚠️ No se pudo cargar {nombre} (Error {response.status_code})")
+            except Exception as e:
+                st.error(f"❌ Error al cargar {nombre}: {e}")
+
+    # Cargar GeoJSON solo una vez
+    cargar_geojson("https://raw.githubusercontent.com/HermanMoreno98/DATA_DASH/refs/heads/main/departamento.geojson", "departamento")
+    cargar_geojson("https://raw.githubusercontent.com/HermanMoreno98/DATA_DASH/refs/heads/main/Buffer_EPS_casco_urbano.geojson", "casco_urbano")
+    cargar_geojson("https://raw.githubusercontent.com/HermanMoreno98/DATA_DASH/refs/heads/main/Buffer_EPS_casco_no_urbano.geojson", "casco_no_urbano")
+
     st.set_page_config(page_title="Ranking de Prestadores", layout="wide")
 
     st.title("🏆 Ranking de Prestadores de Servicios")
 
-    # Cargar datos desde Excel
-    uploaded_file = st.sidebar.file_uploader("📂 Sube un archivo Excel", type=["xlsx", "xls"])
-    if uploaded_file:
-        df, ranking_cols = load_data(uploaded_file)
-        st.sidebar.success("✅ Archivo cargado correctamente")
+    df, ranking_cols = load_data("./data/base_app_final.xlsx")
+    # st.sidebar.success("✅ Archivo cargado correctamente")
+    
+    st.sidebar.header("🔍 Filtrar por EPS")
+    eps_options = df["EPS"].unique().tolist()
+    # selected_eps = st.sidebar.multiselect("Selecciona EPS", eps_options, default=eps_options)
+    selected_eps = st.sidebar.selectbox("Selecciona EPS", eps_options)
 
-        # Inicializar session_state si no existe
-        if "weights" not in st.session_state:
+    # Inicializar session_state si no existe
+    if "weights" not in st.session_state:
             st.session_state.weights = {col: default_weights.get(col, 1) for col in ranking_cols}
 
         # Configuración de pesos en la barra lateral
-        st.sidebar.header("⚖️ Ajustar Pesos")
-        with st.sidebar.expander("🔧 Modificar pesos"):
-            for col in ranking_cols:
+    st.sidebar.header("⚖️ Ajustar Pesos")
+    with st.sidebar.expander("🔧 Modificar pesos"):
+        for col in ranking_cols:
                 st.session_state.weights[col] = st.slider(f"{col}", 1, 5, st.session_state.weights[col], 1)
 
         # Recalcular ranking inmediatamente cuando cambian los pesos
         # df_ranked = calculate_ranking(df, ranking_cols, st.session_state.weights)
-        df_ranked = calculate_sectional_ranking(df,ranking_cols,st.session_state.weights,sections)
+    df_ranked = calculate_sectional_ranking(df,ranking_cols,st.session_state.weights,sections)
+    
+    # df_filtered = df_ranked[df_ranked["EPS"].isin(selected_eps)]
+    df_filtered = df_ranked[df_ranked["EPS"] == selected_eps]
 
         # Configuración de layout en 2 columnas
-        col1, col2 = st.columns([3, 3])  # Columna izquierda (ranking) | Derecha (mapa)
+    col1, col2 = st.columns([3, 3])  # Columna izquierda (ranking) | Derecha (mapa)
 
-        with col1:
-            top_n = st.slider("🎯 Selecciona Top N", 1, len(df), 10)
-            df_top = df_ranked.head(top_n)
-
-            with st.expander("📋 Ver tabla de ranking", expanded=True):
-                st.dataframe(df_top)
-            
+    with col1:
+            top_n = st.slider("🎯 Selecciona Top N", 1, len(df_filtered), 10)
+            df_top = df_filtered.head(top_n)
             
             st.subheader("📢 Resumen de Top Seleccionado")
-            st.write(df_top[["p016_nombredelprestador", "Ranking"]])
+            st.write(df_top[["Prestador", "Ranking"]])
 
-        with col2:
+    with col2:
             st.subheader("🗺️ Mapa")
             map_center = [df_top["LATITUD"].mean(), df_top["LONGITUD"].mean()]
             m = folium.Map(location=map_center, zoom_start=10)
 
-            # URL del primer GeoJSON (UP)
-            up_url = "https://raw.githubusercontent.com/HermanMoreno98/DATA_DASH/refs/heads/main/up_lambayeque.geojson"
-            try:
-                response = requests.get(up_url)
-                if response.status_code == 200:
-                    geojson_data = response.json()
-                    gdf = gpd.GeoDataFrame.from_features(geojson_data["features"])
-                    folium.GeoJson(
-                        geojson_data,
-                        name="Unidades de proceso Lambayeque",
-                        style_function=lambda feature: {
-                            "color": "black",
-                            "weight": 1,
-                            "fillOpacity": 0
-                        }
+            # Limite Departamental
+            geojson_data = st.session_state["geojson_data"].get("departamento", {})
+            if geojson_data:
+                gdf = gpd.GeoDataFrame.from_features(geojson_data["features"])
+                folium.GeoJson(
+                    geojson_data,
+                    name="Limite departamental",
+                    style_function=lambda feature: {
+                        "color": "black",
+                        "weight": 1,
+                        "fillOpacity": 0
+                    }
+                ).add_to(m)
+                # Nombres en el centro de cada polígono
+                for _, row in gdf.iterrows():
+                    centroide = row.geometry.centroid
+                    nombre = row["nomdep"]
+                    folium.Marker(
+                        location=[centroide.y, centroide.x],
+                        icon=folium.DivIcon(html=f"<div style='font-size: 10px; color: black;'>{nombre}</div>")
                     ).add_to(m)
-                    # Agregar nombres en el centro de cada polígono
-                    for _, row in gdf.iterrows():
-                        centroide = row.geometry.centroid  # Obtener el centroide
-                        nombre = row["codup"]  # Ajusta esto al nombre de la UP en tu GeoJSON
 
-                        folium.Marker(
-                            location=[centroide.y, centroide.x],
-                            icon=folium.DivIcon(html=f"<div style='font-size: 10px; color: black;'>{nombre}</div>")
-                        ).add_to(m)
-                else:
-                    st.error(f"⚠️ No se pudo cargar Sectores Lambayeque (Error {response.status_code})")
-            except Exception as e:
-                st.error(f"❌ Error al cargar Sectores Lambayeque: {e}")
+            # Buffer EPS casco urbano
+            geojson_data = st.session_state["geojson_data"].get("casco_urbano", {})
+            if geojson_data:
+                folium.GeoJson(
+                    geojson_data,
+                    name="Buffer_EPS_casco_urbano",
+                    style_function=lambda feature: {
+                        "fillColor": "#A9A9A9",
+                        "color": "black",
+                        "weight": 1,
+                        "fillOpacity": 0.4
+                    }
+                ).add_to(m)
 
-            
-            # URL del primer GeoJSON (Sectores)
-            sector_url = "https://raw.githubusercontent.com/HermanMoreno98/DATA_DASH/refs/heads/main/sector_lambayeque.geojson"
-            try:
-                response = requests.get(sector_url)
-                if response.status_code == 200:
-                    geojson_data = response.json()
-                    folium.GeoJson(
-                        geojson_data,
-                        name="Sectores Lambayeque",
-                        style_function=lambda feature: {
-                            "fillColor": "#A9A9A9",
-                            "color": "black",
-                            "weight": 1,
-                            "fillOpacity": 0.4
-                        }
-                    ).add_to(m)
-                else:
-                    st.error(f"⚠️ No se pudo cargar Sectores Lambayeque (Error {response.status_code})")
-            except Exception as e:
-                st.error(f"❌ Error al cargar Sectores Lambayeque: {e}")
+            # Buffer EPS casco no urbano
+            geojson_data = st.session_state["geojson_data"].get("casco_no_urbano", {})
+            if geojson_data:
+                def buffer_style(feature):
+                    layer_value = feature["properties"].get("layer", "")
+                    color = "#FFFF00" if layer_value == "A 2.5 Km del Área con población servida de la EPS" else "#87CEEB"
+                    return {
+                        "fillColor": color,
+                        "color": "black",
+                        "weight": 1,
+                        "fillOpacity": 0.4
+                    }
+                folium.GeoJson(
+                    geojson_data,
+                    name="Buffer EPS Lambayeque",
+                    style_function=buffer_style
+                ).add_to(m)
 
-            # URL del segundo GeoJSON (Buffer EPS)
-            buffer_url = "https://raw.githubusercontent.com/HermanMoreno98/DATA_DASH/refs/heads/main/buffer_eps_lambayeque.geojson"
-            try:
-                response = requests.get(buffer_url)
-                if response.status_code == 200:
-                    geojson_data = response.json()
-
-                    def buffer_style(feature):
-                        layer_value = feature["properties"].get("layer", "")
-                        color = "#FFFF00" if layer_value == "A 2.5 Km del Área con población servida de la EPS" else "#87CEEB"
-                        return {
-                            "fillColor": color,
-                            "color": "black",
-                            "weight": 1,
-                            "fillOpacity": 0.4
-                        }
-
-                    folium.GeoJson(
-                        geojson_data,
-                        name="Buffer EPS Lambayeque",
-                        style_function=buffer_style
-                    ).add_to(m)
-                else:
-                    st.error(f"⚠️ No se pudo cargar Buffer EPS Lambayeque (Error {response.status_code})")
-            except Exception as e:
-                st.error(f"❌ Error al cargar Buffer EPS Lambayeque: {e}")
-
-            # Puntos
+            # Puntos con filtros
             for _, row in df_top.iterrows():
                 color = "red" if row["Ranking"] >= 0.5855408551300644 else "green"
-                
                 folium.CircleMarker(
                     location=[row["LATITUD"], row["LONGITUD"]],
-                    radius=6,  # Tamaño del círculo
+                    radius=6,
                     color=color,
                     fill=True,
                     fill_color=color,
                     fill_opacity=0.7,
-                    popup=row["p016_nombredelprestador"]
+                    popup=row["Prestador"]
                 ).add_to(m)
 
+            # Control de capas
+            folium.LayerControl().add_to(m)
 
-            # Agregar control de capas
-            folium.LayerControl().add_to(m)           
-            
             folium_static(m)
 
 
-            # 🔹 Agregando el gráfico de radar debajo del mapa
-            st.subheader("📊 Comparación entre Prestadores")
-            radar_fig = generate_radar_chart(df_top, sections)  # Función que genera el gráfico
-            st.plotly_chart(radar_fig, use_container_width=True)
+    with st.expander("📋 Ver tabla de ranking", expanded=False):
+        st.dataframe(df_top)
+        
+    # 🔹 Agregando el gráfico de radar debajo del mapa
+    st.subheader("📊 Comparación entre Prestadores")
+    radar_fig = generate_radar_chart(df_top, sections)  # Función que genera el gráfico
+    st.plotly_chart(radar_fig, use_container_width=True)
 
 
         # Mostrar la ecuación con los pesos actualizados dinámicamente
-        st.subheader("🧮 Fórmula de Cálculo del Ranking")
-        formula = generate_formula(st.session_state.weights)
-        st.latex(formula)
+    st.subheader("🧮 Fórmula de Cálculo del Ranking")
+    formula = generate_formula(st.session_state.weights)
+    st.latex(formula)
 
 if __name__ == "__main__":
     main()
