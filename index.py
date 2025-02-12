@@ -238,17 +238,32 @@ def main():
                 ).add_to(m)
 
             # Puntos con filtros
-            for _, row in df_top.iterrows():
-                color = "red" if row["Ranking"] >= 0.5855408551300644 else "green"
+            # for _, row in df_top.iterrows():
+            #     # color = "red" if row["Ranking"] >= 0.5855408551300644 else "green"
+            #     color = "red" if row["Ranking"] >= 0.5855408551300644 else "green"
+            #     folium.CircleMarker(
+            #         location=[row["LATITUD"], row["LONGITUD"]],
+            #         radius=6,
+            #         color=color,
+            #         fill=True,
+            #         fill_color=color,
+            #         fill_opacity=0.7,
+            #         popup=row["Prestador"]
+            #     ).add_to(m)
+            for idx, row in enumerate(df_top.iterrows()):
+                # Si el índice es menor que 10, color rojo; de lo contrario, verde
+                color = "red" if idx < 10 else "green"
+                
                 folium.CircleMarker(
-                    location=[row["LATITUD"], row["LONGITUD"]],
+                    location=[row[1]["LATITUD"], row[1]["LONGITUD"]],
                     radius=6,
                     color=color,
                     fill=True,
                     fill_color=color,
                     fill_opacity=0.7,
-                    popup=row["Prestador"]
+                    popup=row[1]["Prestador"]
                 ).add_to(m)
+
 
             # Control de capas
             folium.LayerControl().add_to(m)
