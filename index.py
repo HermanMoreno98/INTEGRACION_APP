@@ -5,6 +5,7 @@ import folium
 import requests
 import plotly.express as px
 from streamlit_folium import folium_static
+from folium.plugins import Fullscreen
 
 # Diccionario de pesos predeterminado
 default_weights = {
@@ -168,16 +169,16 @@ def main():
     df_filtered = df_ranked[df_ranked["EPS"] == selected_eps]
 
         # Configuración de layout en 2 columnas
-    col1, col2 = st.columns([3, 3])  # Columna izquierda (ranking) | Derecha (mapa)
+    col1, col2 = st.columns([4.5, 2])  # Columna izquierda (ranking) | Derecha (mapa)
 
-    with col1:
+    with col2:
             top_n = st.slider("🎯 Selecciona Top N", 1, len(df_filtered), 10)
             df_top = df_filtered.head(top_n)
             
             st.subheader("📢 Resumen de Top Seleccionado")
-            st.write(df_top[["Prestador", "Ranking"]])
+            st.write(df_top[["Ranking","Prestador"]])
 
-    with col2:
+    with col1:
             st.subheader("🗺️ Mapa")
             map_center = [df_top["LATITUD"].mean(), df_top["LONGITUD"].mean()]
             m = folium.Map(location=map_center, zoom_start=10)
@@ -251,6 +252,9 @@ def main():
 
             # Control de capas
             folium.LayerControl().add_to(m)
+            
+            # Agregar el botón de pantalla completa
+            Fullscreen(position='topright', title='Expandir', title_cancel='Salir', force_separate_button=True).add_to(m)
 
             folium_static(m)
 
