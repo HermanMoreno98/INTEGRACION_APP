@@ -2,17 +2,17 @@ import streamlit as st
 import pandas as pd
 import geopandas as gpd
 import folium
-import requests
 import plotly.express as px
-from streamlit_folium import folium_static
 from folium.plugins import Fullscreen
+import leafmap.foliumap as leafmap
+from unidecode import unidecode
 
 # Diccionario de pesos predeterminado
 default_weights = {
     'Índice de servicios brindados': 4,
-    'Conexiones totales de agua': 2,
-    'Conexiones totales de alcantarillado': 2,
-    'Población': 2,
+    'Conexiones totales de agua': 6,
+    'Conexiones totales de alcantarillado': 1,
+    'Población': 6,
     '¿La OC cuenta con reconocimiento de la muni?': 1,
     '¿Recibió asistencia técnica en los últimos 3 años?': 1,
     'Ind cuota': 4,
@@ -23,9 +23,9 @@ default_weights = {
     '¿Realiza cloración?': 1,
     '¿El sistema cuenta con equipo clorador?': 1,
     'Estado operativo del reservorio': 1,
-    'Antigüedad promedio del sistema': 1,
-    'Antigüedad máxima del sistema': 1,
-    'Distancia a la EP': 4
+    'Antigüedad promedio del sistema': 2,
+    'Antigüedad máxima del sistema': 2,
+    'Distancia a la EP': 9
 }
 
 sections = {
@@ -43,7 +43,8 @@ sections = {
 }
 
 def load_data(file):
-    df = pd.read_excel(file)
+    df = pd.read_excel(file, engine="openpyxl")
+    df["Prestador"] = df["Prestador"].apply(lambda x: unidecode(str(x)))
     ranking_cols = df.loc[:, 'Índice de servicios brindados':'Distancia a la EP'].columns
     df = df[['Prestador', 'LONGITUD', 'LATITUD','EPS'] + list(ranking_cols)]
     return df, ranking_cols
@@ -113,33 +114,32 @@ def generate_formula(weights):
     """
     return formula
 
+@st.cache_data
+def cargar_geojson_local(ruta, nombre):
+    try:
+        geojson_data = gpd.read_file(ruta)
+        return geojson_data
+    except Exception as e:
+        st.error(f"❌ Error al cargar {nombre}: {e}")
+        return gpd.GeoDataFrame()
+    
+# Configuración inicial de session_state
+if "geojson_data" not in st.session_state:
+    st.session_state["geojson_data"] = {
+        "datass": cargar_geojson_local("./data/datass.geojson", "datass"),
+        "departamento": cargar_geojson_local("./data/departamento.geojson", "departamento"),
+        "casco_urbano": cargar_geojson_local("./data/Buffer_EPS_casco_urbano.geojson", "casco_urbano"),
+        "casco_no_urbano": cargar_geojson_local("./data/Buffer_EPS_casco_no_urbano.geojson", "casco_no_urbano"),
+        "censo": cargar_geojson_local("./data/censo.geojson", "censo")
+    }
 
 
 def main():
+    st.set_page_config(page_title="Ranking de Prestadores", layout="wide")
     
     # Configuración inicial de session_state
     if "geojson_data" not in st.session_state:
         st.session_state["geojson_data"] = {}
-
-    # Función para cargar GeoJSON si no está en session_state
-    def cargar_geojson(url, nombre):
-        if nombre not in st.session_state["geojson_data"]:
-            try:
-                response = requests.get(url)
-                if response.status_code == 200:
-                    geojson_data = response.json()
-                    st.session_state["geojson_data"][nombre] = geojson_data
-                else:
-                    st.error(f"⚠️ No se pudo cargar {nombre} (Error {response.status_code})")
-            except Exception as e:
-                st.error(f"❌ Error al cargar {nombre}: {e}")
-
-    # Cargar GeoJSON solo una vez
-    cargar_geojson("https://raw.githubusercontent.com/HermanMoreno98/DATA_DASH/refs/heads/main/departamento.geojson", "departamento")
-    cargar_geojson("https://raw.githubusercontent.com/HermanMoreno98/DATA_DASH/refs/heads/main/Buffer_EPS_casco_urbano.geojson", "casco_urbano")
-    cargar_geojson("https://raw.githubusercontent.com/HermanMoreno98/DATA_DASH/refs/heads/main/Buffer_EPS_casco_no_urbano.geojson", "casco_no_urbano")
-
-    st.set_page_config(page_title="Ranking de Prestadores", layout="wide")
 
     st.title("🏆 Ranking de Prestadores de Servicios")
 
@@ -159,7 +159,7 @@ def main():
     st.sidebar.header("⚖️ Ajustar Pesos")
     with st.sidebar.expander("🔧 Modificar pesos"):
         for col in ranking_cols:
-                st.session_state.weights[col] = st.slider(f"{col}", 1, 5, st.session_state.weights[col], 1)
+                st.session_state.weights[col] = st.slider(f"{col}", 1, 10, st.session_state.weights[col], 1)
 
         # Recalcular ranking inmediatamente cuando cambian los pesos
         # df_ranked = calculate_ranking(df, ranking_cols, st.session_state.weights)
@@ -177,25 +177,27 @@ def main():
             
             st.subheader("📢 Resumen de Top Seleccionado")
             st.write(df_top[["Ranking","Prestador"]])
-
+    
     with col1:
-            st.subheader("🗺️ Mapa")
-            map_center = [df_top["LATITUD"].mean(), df_top["LONGITUD"].mean()]
-            m = folium.Map(location=map_center, zoom_start=10)
+         
+        st.subheader("🗺️ Mapa")
+        map_center = [df_filtered["LATITUD"].mean(), df_filtered["LONGITUD"].mean()]
+        m = leafmap.Map(center=map_center, zoom=12)  # Lima, Perú
 
-            # Limite Departamental
-            geojson_data = st.session_state["geojson_data"].get("departamento", {})
-            if geojson_data:
-                gdf = gpd.GeoDataFrame.from_features(geojson_data["features"])
-                folium.GeoJson(
+        # Limite Departamental
+        geojson_data = st.session_state["geojson_data"].get("departamento", {})
+        if isinstance(geojson_data, gpd.GeoDataFrame) and not geojson_data.empty:
+                # gdf = gpd.GeoDataFrame.from_features(geojson_data["features"])
+                gdf = geojson_data
+                m.add_geojson(
                     geojson_data,
-                    name="Limite departamental",
+                    layer_name="Limite departamental",
                     style_function=lambda feature: {
                         "color": "black",
                         "weight": 1,
                         "fillOpacity": 0
                     }
-                ).add_to(m)
+                )
                 # Nombres en el centro de cada polígono
                 for _, row in gdf.iterrows():
                     centroide = row.geometry.centroid
@@ -205,24 +207,25 @@ def main():
                         icon=folium.DivIcon(html=f"<div style='font-size: 10px; color: black;'>{nombre}</div>")
                     ).add_to(m)
 
-            # Buffer EPS casco urbano
-            geojson_data = st.session_state["geojson_data"].get("casco_urbano", {})
-            if geojson_data:
-                folium.GeoJson(
+        # Buffer EPS casco urbano
+        geojson_data = st.session_state["geojson_data"].get("casco_urbano", {})
+        if isinstance(geojson_data, gpd.GeoDataFrame) and not geojson_data.empty:
+            m.add_geojson(
                     geojson_data,
-                    name="Buffer_EPS_casco_urbano",
+                    layer_name="Buffer_EPS_casco_urbano",
                     style_function=lambda feature: {
                         "fillColor": "#A9A9A9",
                         "color": "black",
                         "weight": 1,
                         "fillOpacity": 0.4
                     }
-                ).add_to(m)
+                )
 
-            # Buffer EPS casco no urbano
-            geojson_data = st.session_state["geojson_data"].get("casco_no_urbano", {})
-            if geojson_data:
-                def buffer_style(feature):
+        
+        # Buffer EPS casco no urbano
+        geojson_data = st.session_state["geojson_data"].get("casco_no_urbano", {})
+        if isinstance(geojson_data, gpd.GeoDataFrame) and not geojson_data.empty:
+            def buffer_style(feature):
                     layer_value = feature["properties"].get("layer", "")
                     color = "#FFFF00" if layer_value == "A 2.5 Km del Área con población servida de la EPS" else "#87CEEB"
                     return {
@@ -231,59 +234,126 @@ def main():
                         "weight": 1,
                         "fillOpacity": 0.4
                     }
-                folium.GeoJson(
+            m.add_geojson(
                     geojson_data,
-                    name="Buffer EPS Lambayeque",
+                    layer_name="Buffer EPS Lambayeque",
                     style_function=buffer_style
-                ).add_to(m)
+            )
 
-            # Puntos con filtros
-            # for _, row in df_top.iterrows():
-            #     # color = "red" if row["Ranking"] >= 0.5855408551300644 else "green"
-            #     color = "red" if row["Ranking"] >= 0.5855408551300644 else "green"
-            #     folium.CircleMarker(
-            #         location=[row["LATITUD"], row["LONGITUD"]],
-            #         radius=6,
-            #         color=color,
-            #         fill=True,
-            #         fill_color=color,
-            #         fill_opacity=0.7,
-            #         popup=row["Prestador"]
-            #     ).add_to(m)
-            for idx, row in enumerate(df_top.iterrows()):
-                # Si el índice es menor que 10, color rojo; de lo contrario, verde
-                color = "red" if idx < 10 else "green"
+        # Datass
+        geojson_data = st.session_state["geojson_data"].get("datass", {})
+        layer_datass = folium.FeatureGroup(name=f"DATASS: {selected_eps}")
+        if isinstance(geojson_data, gpd.GeoDataFrame) and not geojson_data.empty:
+                # Verifica si el GeoDataFrame tiene geometrías de tipo Point
+                points = geojson_data[geojson_data.geometry.type == "Point"]
                 
-                folium.CircleMarker(
-                    location=[row[1]["LATITUD"], row[1]["LONGITUD"]],
-                    radius=6,
-                    color=color,
-                    fill=True,
-                    fill_color=color,
-                    fill_opacity=0.7,
-                    popup=row[1]["Prestador"]
-                ).add_to(m)
+                # Filtrar puntos según la selección de EPS
+                puntos_filtrados = points[points["EPS1"] == selected_eps]
+                
+                for _, row in puntos_filtrados.iterrows():
+                    lon, lat = row.geometry.x, row.geometry.y
+                    
+                    # Crear contenido del popup
+                    popup_content = f"""
+                    <b>Prestador:</b> {row["nomprest"]}<br>
+                    <b>EPS:</b> {row["EPS1"]}
+                    """
+                    # Añadir un CircleMarker para cada punto filtrado
+                    folium.CircleMarker(
+                        location=[lat, lon],
+                        radius=3,  # Tamaño del marcador
+                        color="blue",
+                        fill=True,
+                        fill_color="blue",
+                        fill_opacity=0.6,
+                        popup=folium.Popup(popup_content, max_width=300)
+                    ).add_to(layer_datass)
 
+        layer_datass.add_to(m)
 
-            # Control de capas
-            folium.LayerControl().add_to(m)
-            
-            # Agregar el botón de pantalla completa
-            Fullscreen(position='topright', title='Expandir', title_cancel='Salir', force_separate_button=True).add_to(m)
+        # Censo
+        geojson_data = st.session_state["geojson_data"].get("censo", {})
+        layer_censo = folium.FeatureGroup(name=f"CENSO: {selected_eps}")
+        if isinstance(geojson_data, gpd.GeoDataFrame) and not geojson_data.empty:
+                # Verifica si el GeoDataFrame tiene geometrías de tipo Point
+                points = geojson_data[geojson_data.geometry.type == "Point"]
+                
+                # Filtrar puntos según la selección de EPS
+                puntos_filtrados = points[points["EPS1"] == selected_eps]
+                
+                for _, row in puntos_filtrados.iterrows():
+                    lon, lat = row.geometry.x, row.geometry.y
 
-            folium_static(m)
+                    # Crear contenido del popup
+                    popup_content = f"""
+                    <b>Centro Poblado:</b> {row["NOMCCPP"]}
+                    """
+                    
+                    # Añadir un CircleMarker para cada punto filtrado
+                    folium.CircleMarker(
+                        location=[lat, lon],
+                        radius=3,  # Tamaño del marcador
+                        color="orange",
+                        fill=True,
+                        fill_color="orange",
+                        fill_opacity=0.6,
+                        popup=folium.Popup(popup_content, max_width=300)
+                    ).add_to(layer_censo)
 
+        layer_censo.add_to(m)
+
+        # Puntos con filtros y capas
+        layer_top_puntos = folium.FeatureGroup(name=f"SUNASS: {selected_eps}")
+        for idx, row in enumerate(df_filtered.iterrows()):
+            # Si el índice es menor que 10, color rojo; de lo contrario, verde
+            color = "red" if idx <= top_n else "green"
+            radius = 6 if idx <= top_n else 4
+
+            # Crear contenido del popup
+            popup_content = f"""
+            <b>Prestador:</b> {row[1]["Prestador"]}<br>
+            <b>Latitud:</b> {row[1]["LATITUD"]}<br>
+            <b>Longitud:</b> {row[1]["LONGITUD"]}
+            """
+            # Usar CircleMarker de folium directamente con add_child()
+            marker = folium.CircleMarker(
+                location=[row[1]["LATITUD"], row[1]["LONGITUD"]],
+                radius=radius,
+                color=color,
+                fill=True,
+                fill_color=color,
+                fill_opacity=0.7,
+                popup=folium.Popup(popup_content, max_width=300)
+            )
+            marker.add_to(layer_top_puntos)
+
+        layer_top_puntos.add_to(m)
+        # Añadir control de capas
+        m.add_layer_control()
+
+        legend_dict = {
+            f"Top {top_n}": "red",
+            "Caracterizacion": "green",
+            "DATASS": "blue",
+            "CENSO": "orange"
+        }
+
+        # Añadir la leyenda al mapa
+        m.add_legend(title="Leyenda", legend_dict=legend_dict)
+
+        # Mostrar el mapa en Streamlit
+        m.to_streamlit(height=600)
 
     with st.expander("📋 Ver tabla de ranking", expanded=False):
-        st.dataframe(df_top)
-        
+            st.dataframe(df_top)
+            
     # 🔹 Agregando el gráfico de radar debajo del mapa
     st.subheader("📊 Comparación entre Prestadores")
     radar_fig = generate_radar_chart(df_top, sections)  # Función que genera el gráfico
     st.plotly_chart(radar_fig, use_container_width=True)
 
 
-        # Mostrar la ecuación con los pesos actualizados dinámicamente
+            # Mostrar la ecuación con los pesos actualizados dinámicamente
     st.subheader("🧮 Fórmula de Cálculo del Ranking")
     formula = generate_formula(st.session_state.weights)
     st.latex(formula)
